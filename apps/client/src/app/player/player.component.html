@@ -1,0 +1,153 @@
+<div class="player-container">
+  <div class="header">
+    <h1>Rally-Player</h1>
+    <p>Personal Streaming, Tagging & Slow-Motion Rotation Analysis Studio</p>
+  </div>
+
+  <!-- Search & Stream URL Form (YouTube-style Unified Bar) -->
+  <div class="url-form">
+    <input 
+      type="text" 
+      class="url-input" 
+      placeholder="Search badminton videos (e.g. Christie drop) or paste YouTube link here..." 
+      [(ngModel)]="rawUrl"
+      (keyup.enter)="onSearchOrStream()"
+    />
+    <button class="btn-stream" (click)="onSearchOrStream()">
+      <span>{{ isSearchUrl(rawUrl) ? 'Stream Match' : 'Search' }}</span>
+    </button>
+  </div>
+
+  <!-- Video Workspace (Only shown when a stream is actively loaded) -->
+  <div class="video-workspace" *ngIf="streamSourceUrl">
+    <!-- YT Mount target -->
+    <div id="yt-player-container" style="width: 100%; height: 100%;"></div>
+  </div>
+
+  <!-- Analysis Control Hub (Only visible when stream is active) -->
+  <div class="controls-panel" *ngIf="streamSourceUrl">
+    <div class="control-row">
+      <div class="playback-buttons">
+        <button class="btn-control" (click)="togglePlay()">
+          <span>{{ isPlaying ? '⏸ Pause' : '▶ Play' }}</span>
+        </button>
+        <button class="btn-control" (click)="stepFrame(-1)">
+          <span>⏪ Step Back 0.5s</span>
+        </button>
+        <button class="btn-control" (click)="stepFrame(1)">
+          <span>Step Forward 0.5s ⏩</span>
+        </button>
+      </div>
+
+      <!-- Playback Speed Grid -->
+      <div class="speed-selectors">
+        <span style="font-size: 0.75rem; margin-right: 0.5rem; color: #8a929a;">ANALYSIS SPEED:</span>
+        <button 
+          *ngFor="let speed of availableSpeeds" 
+          class="btn-speed" 
+          [class.active]="currentSpeed === speed"
+          (click)="setSpeed(speed)"
+        >
+          {{ speed }}x
+        </button>
+      </div>
+    </div>
+
+    <!-- Quick Legend for Tactical Studies -->
+    <div class="shortcuts-legend">
+      <div class="shortcut-item">
+        <span class="shortcut-label">Play / Pause</span>
+        <span class="shortcut-key">Space</span>
+      </div>
+      <div class="shortcut-item">
+        <span class="shortcut-label">Step Back (0.5s)</span>
+        <span class="shortcut-key">A</span>
+      </div>
+      <div class="shortcut-item">
+        <span class="shortcut-label">Step Forward (0.5s)</span>
+        <span class="shortcut-key">D</span>
+      </div>
+      <div class="shortcut-item">
+        <span class="shortcut-label">Fast Forward (5s)</span>
+        <span class="shortcut-key">→</span>
+      </div>
+      <div class="shortcut-item">
+        <span class="shortcut-label">Rewind (5s)</span>
+        <span class="shortcut-key">←</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dynamic Badminton Discovery & Search Results Grid (Always available for browsing) -->
+  <div class="curated-section">
+    <div class="section-header">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <div>
+          <h2 style="margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--text-main);">
+            {{ currentQuery ? '🔍 Search Results: "' + currentQuery + '"' : '🏸 Live Badminton Discovery Studio' }}
+          </h2>
+          <p style="margin: 0.25rem 0 0 0; color: var(--text-muted); font-size: 0.9rem;">
+            {{ currentQuery ? 'Curated search matches pulled dynamically from YouTube.' : 'Instantly browse and analyze the latest badminton matches and tactical studies pulled directly from BWF TV.' }}
+          </p>
+        </div>
+        <div style="display: flex; gap: 0.75rem;">
+          <button *ngIf="currentQuery" class="btn-control" (click)="clearSearch()">
+            <span>Reset Search</span>
+          </button>
+          <button class="btn-control" (click)="loadBadmintonFeed(currentQuery)" [disabled]="isFeedLoading" style="padding: 0.6rem 1.2rem;">
+            <span>{{ isFeedLoading ? 'Fetching...' : 'Refresh Feed' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Feed Loading Spinner Overlay -->
+    <div class="feed-loader" *ngIf="isFeedLoading && (curatedVideos?.length || 0) === 0">
+      <div class="spinner"></div>
+      <p style="color: var(--text-muted); font-size: 0.9rem;">Querying YouTube for live badminton streams...</p>
+    </div>
+
+    <!-- Discover Video Cards Grid -->
+    <div class="video-grid" *ngIf="(curatedVideos?.length || 0) > 0">
+      <div 
+        *ngFor="let video of curatedVideos" 
+        class="video-card"
+        [class.playing]="rawUrl === video.url"
+        (click)="selectCuratedVideo(video)"
+      >
+        <div class="card-thumbnail-container">
+          <img [src]="video.thumbnail" alt="Match Thumbnail" class="card-thumbnail">
+          <span class="card-duration">{{ video.duration }}</span>
+          <span class="card-category">{{ video.category }}</span>
+        </div>
+        <div class="card-details">
+          <h3 class="card-title">{{ video.title }}</h3>
+          <p class="card-description">{{ video.description }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Paginated Grid Controls -->
+    <div class="pagination-container" *ngIf="(curatedVideos?.length || 0) > 0">
+      <!-- Loading more progress spinner -->
+      <div class="load-more-loader" *ngIf="isLoadingMore">
+        <div class="mini-spinner"></div>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0 0 0;">Fetching next page of badminton recordings...</p>
+      </div>
+
+      <!-- Action button to fetch next batch -->
+      <button 
+        *ngIf="hasMoreVideos && !isLoadingMore" 
+        class="btn-load-more" 
+        (click)="loadMore()"
+      >
+        <span>Show More Badminton Videos</span>
+      </button>
+
+      <!-- Reached end of playlist indication -->
+      <div class="end-of-results" *ngIf="!hasMoreVideos && !isLoadingMore">
+        <span>🏸 You've fully caught up with the active search stream!</span>
+      </div>
+    </div>
+  </div>
+</div>
