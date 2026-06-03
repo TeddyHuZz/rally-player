@@ -250,10 +250,11 @@ export class StreamService implements OnModuleInit {
           const videosPromises = lines.map(async (line) => {
             const meta = JSON.parse(line);
             
-            // Extract the best thumbnail available
+            // Extract the best thumbnail available (highest resolution)
             let thumbnail = 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?q=80&w=350&auto=format&fit=crop';
             if (meta.thumbnails && meta.thumbnails.length > 0) {
-              const bestThumb = meta.thumbnails.find((t: any) => t.width && t.width >= 360) || meta.thumbnails[0];
+              const sortedThumbs = [...meta.thumbnails].sort((a: any, b: any) => (b.width || 0) - (a.width || 0));
+              const bestThumb = sortedThumbs[0];
               thumbnail = bestThumb.url;
             }
 
@@ -266,10 +267,24 @@ export class StreamService implements OnModuleInit {
               durationStr = status;
             }
 
+            let uploader = meta.uploader || meta.channel || meta.playlist_uploader || meta.playlist_channel;
+            if (!uploader) {
+              if (isChannelVideos && queryStr) {
+                if (queryStr.includes('@BadmintonInsight')) {
+                  uploader = 'Badminton Insight';
+                } else if (queryStr.includes('@BWF')) {
+                  uploader = 'BWF TV';
+                }
+              }
+            }
+            if (!uploader) {
+              uploader = 'BWF TV';
+            }
+
             return {
               title: meta.title || 'Badminton Match',
               url: meta.url || meta.webpage_url,
-              category: meta.uploader || 'BWF TV',
+              category: uploader,
               duration: durationStr || '15:00',
               status: status,
               description: meta.description ? meta.description.substring(0, 120).trim() + '...' : 'Live badminton action and tactical rallies.',
@@ -444,6 +459,12 @@ export class StreamService implements OnModuleInit {
         'hylo': '🇩🇪', 'kumamoto': '🇯🇵', 'syed modi': '🇮🇳', 'finals': '🇨🇳'
       };
 
+      const parseWikipediaPlayerCell = (cell: any) => {
+        const cloned = cell.clone();
+        cloned.find('br').replaceWith(' / ');
+        return cloned.text().replace(/\s+/g, ' ').trim();
+      };
+
       for (const month of months) {
         const h3 = $('h3').filter((idx, el) => $(el).text().includes(month));
         const table = h3.nextAll('table.wikitable').first();
@@ -532,8 +553,8 @@ export class StreamService implements OnModuleInit {
             const championCell = $(cells[2]);
             const runnerUpCell = $(cells[3]);
             
-            const championText = championCell.text().replace(/\s+/g, ' ').trim();
-            const runnerUpText = runnerUpCell.text().replace(/\s+/g, ' ').trim();
+            const championText = parseWikipediaPlayerCell(championCell);
+            const runnerUpText = parseWikipediaPlayerCell(runnerUpCell);
 
             if (championText && championText !== '—' && championText !== 'TBD') {
               currentT.details.winners.push({
@@ -555,8 +576,8 @@ export class StreamService implements OnModuleInit {
               }
             } else {
               disciplineIndex++;
-              const championText = $(cells[0]).text().replace(/\s+/g, ' ').trim();
-              const runnerUpText = $(cells[1]).text().replace(/\s+/g, ' ').trim();
+              const championText = parseWikipediaPlayerCell($(cells[0]));
+              const runnerUpText = parseWikipediaPlayerCell($(cells[1]));
 
               if (championText && championText !== '—' && championText !== 'TBD' && disciplineIndex < disciplines.length) {
                 currentT.details.winners.push({
@@ -650,13 +671,17 @@ export class StreamService implements OnModuleInit {
             const name = $(cells[2]).text().trim();
             const points = $(cells[3]).text().trim();
 
+            const href = $(cells[2]).find('a').attr('href');
+            const slug = href ? href.replace(/^\.\//, '').replace(/^\/wiki\//, '') : null;
+
             const playerObj = {
               rank: rankNum,
               name,
               country,
               points,
               peak: parseInt(cells.eq(4).text().trim(), 10) || null,
-              peakDate: cells.eq(5).text().trim().replace(/\s+/g, ' ').split('[')[0] || null
+              peakDate: cells.eq(5).text().trim().replace(/\s+/g, ' ').split('[')[0] || null,
+              slugs: slug ? [slug] : []
             };
             parsedList.push(playerObj);
           });
@@ -684,6 +709,11 @@ export class StreamService implements OnModuleInit {
             const country2 = cellsB.eq(0).text().trim();
             const name2 = cellsB.eq(1).text().trim();
 
+            const href1 = cellsA.eq(2).find('a').attr('href');
+            const href2 = cellsB.eq(1).find('a').attr('href');
+            const slug1 = href1 ? href1.replace(/^\.\//, '').replace(/^\/wiki\//, '') : null;
+            const slug2 = href2 ? href2.replace(/^\.\//, '').replace(/^\/wiki\//, '') : null;
+
             const combinedNames = `${name1} / ${name2}`;
             const combinedCountries = country1 === country2 ? country1 : `${country1} & ${country2}`;
 
@@ -693,7 +723,8 @@ export class StreamService implements OnModuleInit {
               country: combinedCountries,
               points,
               peak: parseInt(cellsA.eq(4).text().trim(), 10) || null,
-              peakDate: cellsA.eq(5).text().trim().replace(/\s+/g, ' ').split('[')[0] || null
+              peakDate: cellsA.eq(5).text().trim().replace(/\s+/g, ' ').split('[')[0] || null,
+              slugs: [slug1, slug2].filter(Boolean) as string[]
             });
 
             i += 2;

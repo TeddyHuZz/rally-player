@@ -3,7 +3,6 @@
   <div class="app-header">
     <div class="logo-area">
       <div style="display: flex; align-items: center; gap: 0.75rem;">
-        <span class="logo-icon">🏸</span>
         <div>
           <h1 class="app-title">Rally-Player</h1>
           <p class="app-tagline">Personal Slow-Motion Tagging & Rotation Studio</p>
@@ -66,6 +65,17 @@
 
     <button class="btn-stream" (click)="onSearchOrStream()">
       <span>{{ isSearchUrl(rawUrl) ? 'Stream Match' : 'Search' }}</span>
+    </button>
+  </div>
+
+  <!-- Video Header Bar (Close button) -->
+  <div class="video-header-bar" *ngIf="(activeTab === 'videos' || activeTab === 'live') && streamSourceUrl">
+    <button class="btn-close-player" (click)="closeVideoPlayer()">
+      <svg class="close-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+      <span>Close Active Player</span>
     </button>
   </div>
 
@@ -177,7 +187,7 @@
     </div>
 
     <!-- Feed Loading Spinner Overlay -->
-    <div class="feed-loader" *ngIf="isFeedLoading && (curatedVideos?.length || 0) === 0">
+    <div class="feed-loader" *ngIf="isFeedLoading && curatedVideos.length === 0">
       <div class="spinner"></div>
       <p style="color: var(--text-muted); font-size: 0.9rem;">
         {{ activeTab === 'videos' ? 'Querying YouTube for live badminton streams...' : 'Connecting to BWF streams page to fetch live tournament broadcasts...' }}
@@ -185,7 +195,7 @@
     </div>
 
     <!-- Discover Video Cards Grid -->
-    <div class="video-grid" *ngIf="(curatedVideos?.length || 0) > 0">
+    <div class="video-grid" *ngIf="curatedVideos.length > 0">
       <div 
         *ngFor="let video of curatedVideos" 
         class="video-card"
@@ -193,7 +203,7 @@
         (click)="selectCuratedVideo(video)"
       >
         <div class="card-thumbnail-container">
-          <img [src]="video.thumbnail" alt="Match Thumbnail" class="card-thumbnail">
+          <img [src]="getHighResThumbnail(video)" (error)="handleThumbnailError($event, video)" alt="Match Thumbnail" class="card-thumbnail">
           <span 
             class="card-duration" 
             [class.live-badge]="video.status === 'LIVE'"
@@ -212,7 +222,7 @@
     </div>
 
     <!-- Paginated Grid Controls -->
-    <div class="pagination-container" *ngIf="(curatedVideos?.length || 0) > 0">
+    <div class="pagination-container" *ngIf="curatedVideos.length > 0">
       <!-- Loading more progress spinner -->
       <div class="load-more-loader" *ngIf="isLoadingMore">
         <div class="mini-spinner"></div>
@@ -338,20 +348,32 @@
                     </div>
                   </div>
 
-                  <div class="score-sets" *ngIf="match.score">
+                  <!-- Show sets layout if score exists and is not 'Live' -->
+                  <div class="score-sets" *ngIf="match.score && match.score !== 'Live'">
                     <div class="score-set-column" *ngFor="let set of parseScore(match.score)">
                       <span class="set-score-val" [class.winner]="+set.p1 > +set.p2">{{ set.p1 }}</span>
                       <span class="set-score-val" [class.winner]="+set.p2 > +set.p1">{{ set.p2 }}</span>
                     </div>
+                    <!-- Inline compact live badge next to live scores -->
+                    <div class="score-sets-live-badge-inline" *ngIf="match.isLive" style="margin-left: 0.35rem; display: flex; align-items: center;">
+                      <div class="match-live-badge-pulse" style="padding: 0.15rem 0.4rem; font-size: 0.65rem; height: auto;">
+                        <span class="live-pulse"></span>
+                        LIVE
+                      </div>
+                    </div>
                   </div>
-                  <div class="score-sets-empty" *ngIf="!match.score"></div>
-
-                  <div class="match-action-col">
-                    <div class="match-live-badge-pulse" *ngIf="match.isLive">
+                  
+                  <!-- Fallback: Standalone LIVE badge if match is live but no score is available yet -->
+                  <div class="score-sets-live-badge" *ngIf="match.isLive && (!match.score || match.score === 'Live')">
+                    <div class="match-live-badge-pulse">
                       <span class="live-pulse"></span>
                       LIVE
                     </div>
+                  </div>
 
+                  <div class="score-sets-empty" *ngIf="!match.score && !match.isLive"></div>
+
+                  <div class="match-action-col">
                     <!-- Watch actions -->
                     <button 
                       class="btn-match-action" 
@@ -482,7 +504,11 @@
                 (click)="selectPlayer(item)"
               >
                 <td class="col-rank">
-                  <span class="rank-badge" [class.rank-top1]="item.rank === 1" [class.rank-top3]="item.rank > 1 && item.rank <= 3">
+                  <span class="rank-badge" 
+                    [class.rank-top1]="item.rank === 1" 
+                    [class.rank-top2]="item.rank === 2" 
+                    [class.rank-top3]="item.rank === 3"
+                  >
                     {{ item.rank }}
                   </span>
                 </td>
@@ -508,7 +534,17 @@
       <div class="player-profile-panel">
         <div class="profile-card" *ngIf="selectedPlayerProfile">
           <div class="profile-header-group">
-            <div class="profile-avatar-circle" [class.long-initials]="getPlayerInitials(selectedPlayerProfile.name).length > 2">
+            <!-- Dynamic Player Photo(s) or fallback initials avatar -->
+            <div class="profile-avatar-container" *ngIf="playerImages.length === 1">
+              <img [src]="playerImages[0]" class="profile-avatar-img" alt="Player Photo" />
+            </div>
+            
+            <div class="profile-avatar-container doubles-avatar" *ngIf="playerImages.length === 2">
+              <img [src]="playerImages[0]" class="profile-avatar-img partner-1" alt="Partner 1" />
+              <img [src]="playerImages[1]" class="profile-avatar-img partner-2" alt="Partner 2" />
+            </div>
+
+            <div class="profile-avatar-circle" *ngIf="playerImages.length === 0" [class.long-initials]="getPlayerInitials(selectedPlayerProfile.name).length > 2">
               {{ getPlayerInitials(selectedPlayerProfile.name) }}
             </div>
             <div style="flex: 1; min-width: 0;">

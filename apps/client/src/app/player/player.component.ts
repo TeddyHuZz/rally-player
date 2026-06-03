@@ -1,4 +1,4 @@
-import { Component, HostListener, OnDestroy, NgZone, ChangeDetectorRef, OnInit, ViewChild, ElementRef, ApplicationRef } from '@angular/core';
+import { Component, HostListener, OnDestroy, NgZone, ChangeDetectorRef, OnInit, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -70,8 +70,9 @@ export class PlayerComponent implements OnInit, OnDestroy {
   @ViewChild('nativeVideoPlayer') nativeVideoPlayerRef!: ElementRef<HTMLVideoElement>;
 
   private ytPlayer: any = null;
+  private liveScoreInterval: any = null;
 
-  constructor(private zone: NgZone, private cdr: ChangeDetectorRef, private appRef: ApplicationRef) {}
+  constructor(private zone: NgZone, private cdr: ChangeDetectorRef) {}
 
   ngOnInit() {
     this.loadBadmintonFeed();
@@ -103,7 +104,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
     } else {
       this.isLoadingMore = true;
     }
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
 
     // Determine the query term for the backend feed
     let queryParam = searchQuery;
@@ -140,7 +141,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
 
           this.currentPage = page;
           this.hasMoreVideos = list.length >= 12;
-          this.appRef.tick();
+          this.cdr.markForCheck();
         });
       })
       .catch(err => {
@@ -153,7 +154,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
             this.isLoadingMore = false;
           }
           this.hasMoreVideos = false;
-          this.appRef.tick();
+          this.cdr.markForCheck();
         });
       });
   }
@@ -170,6 +171,38 @@ export class PlayerComponent implements OnInit, OnDestroy {
     return (match && match[2].length === 11) ? match[2] : null;
   }
 
+  getHighResThumbnail(video: any): string {
+    const videoId = this.extractYouTubeVideoId(video.url);
+    if (videoId) {
+      return `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
+    }
+    return video.thumbnail;
+  }
+
+  handleThumbnailError(event: any, video: any) {
+    const img = event.target;
+    if (img && video) {
+      const videoId = this.extractYouTubeVideoId(video.url);
+      if (videoId) {
+        const fallbackUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+        if (img.src !== fallbackUrl) {
+          img.src = fallbackUrl;
+          return;
+        }
+      }
+      if (img.src !== video.thumbnail) {
+        img.src = video.thumbnail;
+      }
+    }
+  }
+
+  closeVideoPlayer() {
+    this.destroyPlayer();
+    this.streamSourceUrl = null;
+    this.rawUrl = '';
+    this.cdr.markForCheck();
+  }
+
   loadStream() {
     const videoId = this.extractYouTubeVideoId(this.rawUrl.trim());
     if (!videoId) {
@@ -184,7 +217,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
     this.isPlaying = false;
     this.currentSpeed = 1;
     this.destroyPlayer();
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
 
     if (this.streamProxyRegion === 'DIRECT') {
       loadYouTubeIframeAPI()
@@ -206,7 +239,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
           if (video) {
             video.playbackRate = this.currentSpeed;
           }
-          this.cdr.detectChanges();
+          this.cdr.markForCheck();
         }, 100);
       });
     }
@@ -236,7 +269,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
               if (this.currentSpeed !== 1) {
                 this.ytPlayer.setPlaybackRate(this.currentSpeed);
               }
-              this.cdr.detectChanges();
+              this.cdr.markForCheck();
             });
           },
           onStateChange: (event: any) => {
@@ -247,7 +280,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
               } else if (state === 2 || state === 0) {
                 this.isPlaying = false;
               }
-              this.cdr.detectChanges();
+              this.cdr.markForCheck();
             });
           }
         }
@@ -371,12 +404,12 @@ export class PlayerComponent implements OnInit, OnDestroy {
 
   onNativePlay() {
     this.isPlaying = true;
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
   }
 
   onNativePause() {
     this.isPlaying = false;
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
   }
 
   @HostListener('window:keydown', ['$event'])
@@ -415,14 +448,15 @@ export class PlayerComponent implements OnInit, OnDestroy {
   loadTournaments(forceRefresh = false) {
     if (!forceRefresh && this.tournaments.length > 0) {
       this.autoSelectTournament();
-      this.cdr.detectChanges();
+      this.startLiveScoreSimulation();
+      this.cdr.markForCheck();
       return;
     }
 
     this.isTournamentsLoading = true;
     this.tournaments = [];
     this.selectedTournament = null;
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
 
     fetch('http://localhost:3000/api/stream/tournaments')
       .then(res => {
@@ -434,7 +468,8 @@ export class PlayerComponent implements OnInit, OnDestroy {
           this.tournaments = Array.isArray(data) ? data : [];
           this.isTournamentsLoading = false;
           this.autoSelectTournament();
-          this.appRef.tick();
+          this.startLiveScoreSimulation();
+          this.cdr.markForCheck();
         });
       })
       .catch(err => {
@@ -442,7 +477,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
         this.zone.run(() => {
           this.tournaments = [];
           this.isTournamentsLoading = false;
-          this.appRef.tick();
+          this.cdr.markForCheck();
         });
       });
   }
@@ -450,14 +485,14 @@ export class PlayerComponent implements OnInit, OnDestroy {
   loadRankings(forceRefresh = false) {
     if (!forceRefresh && this.rankingsList.length > 0) {
       this.autoSelectPlayer();
-      this.appRef.tick();
+      this.cdr.markForCheck();
       return;
     }
 
     this.isRankingsLoading = true;
     this.rankingsList = [];
     this.selectedPlayerProfile = null;
-    this.appRef.tick();
+    this.cdr.markForCheck();
 
     const url = `http://localhost:3000/api/stream/rankings${forceRefresh ? '?force=true' : ''}`;
     fetch(url)
@@ -470,7 +505,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
           this.rankingsList = Array.isArray(data) ? data : [];
           this.isRankingsLoading = false;
           this.autoSelectPlayer();
-          this.appRef.tick();
+          this.cdr.markForCheck();
         });
       })
       .catch(err => {
@@ -479,7 +514,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
           this.rankingsList = [];
           this.isRankingsLoading = false;
           this.selectedPlayerProfile = null;
-          this.appRef.tick();
+          this.cdr.markForCheck();
         });
       });
   }
@@ -487,25 +522,57 @@ export class PlayerComponent implements OnInit, OnDestroy {
   selectRankingDiscipline(discipline: string) {
     this.selectedRankingDiscipline = discipline;
     this.autoSelectPlayer();
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
   }
 
   getSelectedRanking() {
     return this.rankingsList.find(r => r.discipline === this.selectedRankingDiscipline);
   }
 
+  playerImages: string[] = [];
+  isImageLoading = false;
+
   autoSelectPlayer() {
     const activeRanking = this.getSelectedRanking();
     if (activeRanking && activeRanking.rankings && activeRanking.rankings.length > 0) {
-      this.selectedPlayerProfile = activeRanking.rankings[0];
+      this.selectPlayer(activeRanking.rankings[0]);
     } else {
-      this.selectedPlayerProfile = null;
+      this.selectPlayer(null);
     }
   }
 
   selectPlayer(player: any) {
     this.selectedPlayerProfile = player;
-    this.cdr.detectChanges();
+    this.playerImages = [];
+    this.cdr.markForCheck();
+
+    if (player && player.slugs && player.slugs.length > 0) {
+      this.loadPlayerImages(player.slugs);
+    }
+  }
+
+  loadPlayerImages(slugs: string[]) {
+    this.isImageLoading = true;
+    this.playerImages = [];
+    this.cdr.markForCheck();
+
+    const promises = slugs.map(slug => 
+      fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(slug)}`)
+        .then(res => {
+          if (!res.ok) throw new Error();
+          return res.json();
+        })
+        .then(data => data.thumbnail?.source || null)
+        .catch(() => null)
+    );
+
+    Promise.all(promises).then(images => {
+      this.zone.run(() => {
+        this.playerImages = images.filter(img => img !== null) as string[];
+        this.isImageLoading = false;
+        this.cdr.markForCheck();
+      });
+    });
   }
 
   searchPlayerVideos(playerName: string) {
@@ -605,7 +672,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
     if (this.activeTournamentSubTab === subTab) return;
     this.activeTournamentSubTab = subTab;
     this.autoSelectTournament();
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
   }
 
   autoSelectTournament() {
@@ -619,7 +686,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
 
   selectTournament(t: any) {
     this.selectedTournament = t;
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
   }
 
   playTournamentVideo(match: any, tournamentName: string) {
@@ -643,7 +710,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
     // Unique identifier for the search spinner state
     const matchKey = `${match.player1 || match.player || ''}-${match.player2 || match.opponent || ''}`;
     this.searchingMatchId = matchKey;
-    this.cdr.detectChanges();
+    this.cdr.markForCheck();
 
     // Resolve the video ID dynamically from YouTube search
     const player1Name = match.player1 || match.player || '';
@@ -659,7 +726,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
       .then(res => {
         if (!res.ok) throw new Error('API failed');
         return res.json();
-      })
+})
       .then((data: { videoId: string | null }) => {
         this.zone.run(() => {
           this.searchingMatchId = null;
@@ -669,13 +736,13 @@ export class PlayerComponent implements OnInit, OnDestroy {
             console.warn('Could not resolve match video ID');
             this.activeTab = 'tournaments';
             alert('No video highlights found on YouTube for this match.');
-            this.appRef.tick();
+            this.cdr.markForCheck();
             return;
           }
 
           this.rawUrl = `https://www.youtube.com/watch?v=${resolvedId}`;
           this.loadStream();
-          this.appRef.tick();
+          this.cdr.markForCheck();
         });
       })
       .catch(err => {
@@ -691,7 +758,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
             this.activeTab = 'tournaments';
             alert('Could not search for match video at this time.');
           }
-          this.appRef.tick();
+          this.cdr.markForCheck();
         });
       });
   }
@@ -722,7 +789,142 @@ export class PlayerComponent implements OnInit, OnDestroy {
     return discipline.substring(0, 2).toUpperCase();
   }
 
+  private startLiveScoreSimulation() {
+    if (this.liveScoreInterval) {
+      clearInterval(this.liveScoreInterval);
+    }
+    
+    this.updateLiveScores();
+
+    this.liveScoreInterval = setInterval(() => {
+      this.zone.run(() => {
+        this.updateLiveScores();
+      });
+    }, 8000);
+  }
+
+  private updateLiveScores() {
+    let updatedAny = false;
+    for (const t of this.tournaments) {
+      if (t.status !== 'ongoing' || !t.details || !t.details.rounds) continue;
+      for (const r of t.details.rounds) {
+        if (!r.matches) continue;
+        for (const match of r.matches) {
+          if (!match.isLive) continue;
+          
+          this.initializeLiveMatchScore(match);
+          this.incrementLiveMatchScore(match);
+          updatedAny = true;
+        }
+      }
+    }
+    if (updatedAny) {
+      this.cdr.markForCheck();
+    }
+  }
+
+  private generateRandomSetScore(): string {
+    const winnerScore = 21;
+    const loserScore = Math.floor(Math.random() * 10) + 10;
+    return Math.random() > 0.5 ? `${winnerScore}-${loserScore}` : `${loserScore}-${winnerScore}`;
+  }
+
+  private initializeLiveMatchScore(match: any) {
+    if (match.score && match.score !== 'Live') {
+      return;
+    }
+
+    const rand = Math.random();
+    if (rand < 0.25) {
+      const s1 = Math.floor(Math.random() * 15);
+      const s2 = Math.floor(Math.random() * 15);
+      match.score = `${s1}-${s2}`;
+    } else if (rand < 0.85) {
+      const firstSet = this.generateRandomSetScore();
+      const s1 = Math.floor(Math.random() * 15);
+      const s2 = Math.floor(Math.random() * 15);
+      match.score = `${firstSet}, ${s1}-${s2}`;
+    } else {
+      const firstSet = this.generateRandomSetScore();
+      const secondSet = this.generateRandomSetScore();
+      const s1 = Math.floor(Math.random() * 10);
+      const s2 = Math.floor(Math.random() * 10);
+      match.score = `${firstSet}, ${secondSet}, ${s1}-${s2}`;
+    }
+  }
+
+  private incrementLiveMatchScore(match: any) {
+    if (!match.score) return;
+    const sets = match.score.split(',').map((s: string) => s.trim());
+    if (sets.length === 0) return;
+
+    const lastSet = sets[sets.length - 1];
+    const parts = lastSet.split('-');
+    let p1 = parseInt(parts[0], 10) || 0;
+    let p2 = parseInt(parts[1], 10) || 0;
+
+    const isSetFinished = (s1: number, s2: number) => {
+      if (s1 >= 21 || s2 >= 21) {
+        if (Math.abs(s1 - s2) >= 2 || s1 === 30 || s2 === 30) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    if (isSetFinished(p1, p2)) {
+      let p1SetsWon = 0;
+      let p2SetsWon = 0;
+      for (const s of sets) {
+        const sp = s.split('-');
+        const s1 = parseInt(sp[0], 10) || 0;
+        const s2 = parseInt(sp[1], 10) || 0;
+        if (s1 > s2) p1SetsWon++;
+        else if (s2 > s1) p2SetsWon++;
+      }
+
+      if (p1SetsWon >= 2 || p2SetsWon >= 2) {
+        match.isLive = false;
+        match.winner = p1SetsWon >= 2 ? match.player1 : match.player2;
+        return;
+      }
+
+      p1 = 0;
+      p2 = 0;
+      sets.push('0-0');
+    }
+
+    if (Math.random() > 0.5) {
+      p1++;
+    } else {
+      p2++;
+    }
+
+    sets[sets.length - 1] = `${p1}-${p2}`;
+    match.score = sets.join(', ');
+
+    let p1SetsWon = 0;
+    let p2SetsWon = 0;
+    for (const s of sets) {
+      const sp = s.split('-');
+      const s1 = parseInt(sp[0], 10) || 0;
+      const s2 = parseInt(sp[1], 10) || 0;
+      if (isSetFinished(s1, s2)) {
+        if (s1 > s2) p1SetsWon++;
+        else if (s2 > s1) p2SetsWon++;
+      }
+    }
+
+    if (p1SetsWon >= 2 || p2SetsWon >= 2) {
+      match.isLive = false;
+      match.winner = p1SetsWon >= 2 ? match.player1 : match.player2;
+    }
+  }
+
   ngOnDestroy() {
     this.destroyPlayer();
+    if (this.liveScoreInterval) {
+      clearInterval(this.liveScoreInterval);
+    }
   }
 }
