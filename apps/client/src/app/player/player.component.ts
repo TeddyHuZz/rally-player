@@ -1,4 +1,4 @@
-import { Component, HostListener, OnDestroy, NgZone, ChangeDetectorRef, OnInit } from '@angular/core';
+import { Component, HostListener, OnDestroy, NgZone, ChangeDetectorRef, OnInit, ViewChild, ElementRef, ApplicationRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -50,13 +50,48 @@ export class PlayerComponent implements OnInit, OnDestroy {
   currentPage = 1;
   isLoadingMore = false;
   hasMoreVideos = true;
+  activeTab: 'videos' | 'live' | 'tournaments' | 'rankings' = 'videos';
+
+  // Tournament dashboard states
+  tournaments: any[] = [];
+  selectedTournament: any = null;
+  activeTournamentSubTab: 'ongoing' | 'upcoming' | 'past' = 'ongoing';
+  isTournamentsLoading = false;
+  searchingMatchId: string | null = null;
+  showVpnHelper = true;
+  streamProxyRegion: 'DIRECT' | 'DE' | 'NL' | 'US' = 'DIRECT';
+
+  // Rankings states
+  rankingsList: any[] = [];
+  selectedRankingDiscipline = "Men's Singles";
+  isRankingsLoading = false;
+  selectedPlayerProfile: any = null;
+
+  @ViewChild('nativeVideoPlayer') nativeVideoPlayerRef!: ElementRef<HTMLVideoElement>;
 
   private ytPlayer: any = null;
 
-  constructor(private zone: NgZone, private cdr: ChangeDetectorRef) {}
+  constructor(private zone: NgZone, private cdr: ChangeDetectorRef, private appRef: ApplicationRef) {}
 
   ngOnInit() {
     this.loadBadmintonFeed();
+  }
+
+  switchTab(tab: 'videos' | 'live' | 'tournaments' | 'rankings') {
+    if (this.activeTab === tab) return;
+    this.activeTab = tab;
+    this.rawUrl = '';
+    this.currentQuery = '';
+    this.destroyPlayer();
+    this.streamSourceUrl = null;
+    
+    if (tab === 'videos' || tab === 'live') {
+      this.loadBadmintonFeed();
+    } else if (tab === 'tournaments') {
+      this.loadTournaments();
+    } else if (tab === 'rankings') {
+      this.loadRankings();
+    }
   }
 
   loadBadmintonFeed(searchQuery?: string, page = 1) {
@@ -70,9 +105,21 @@ export class PlayerComponent implements OnInit, OnDestroy {
     }
     this.cdr.detectChanges();
 
+    // Determine the query term for the backend feed
+    let queryParam = searchQuery;
+    if (!queryParam) {
+      if (this.activeTab === 'live') {
+        queryParam = '__live_tournaments__';
+      }
+    } else {
+      if (this.activeTab === 'live') {
+        queryParam = `${queryParam.trim()} live`;
+      }
+    }
+
     let feedUrl = `http://localhost:3000/api/stream/badminton-feed?page=${page}`;
-    if (searchQuery) {
-      feedUrl += `&query=${encodeURIComponent(searchQuery.trim())}`;
+    if (queryParam) {
+      feedUrl += `&query=${encodeURIComponent(queryParam.trim())}`;
     }
 
     fetch(feedUrl)
@@ -93,7 +140,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
 
           this.currentPage = page;
           this.hasMoreVideos = list.length >= 12;
-          this.cdr.detectChanges();
+          this.appRef.tick();
         });
       })
       .catch(err => {
@@ -106,7 +153,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
             this.isLoadingMore = false;
           }
           this.hasMoreVideos = false;
-          this.cdr.detectChanges();
+          this.appRef.tick();
         });
       });
   }
@@ -139,17 +186,30 @@ export class PlayerComponent implements OnInit, OnDestroy {
     this.destroyPlayer();
     this.cdr.detectChanges();
 
-    loadYouTubeIframeAPI()
-      .then(() => {
-        this.zone.run(() => {
-          setTimeout(() => {
-            this.initYouTubePlayer(videoId);
-          }, 50);
+    if (this.streamProxyRegion === 'DIRECT') {
+      loadYouTubeIframeAPI()
+        .then(() => {
+          this.zone.run(() => {
+            setTimeout(() => {
+              this.initYouTubePlayer(videoId);
+            }, 50);
+          });
+        })
+        .catch(err => {
+          console.error('Failed to load YouTube API:', err);
         });
-      })
-      .catch(err => {
-        console.error('Failed to load YouTube API:', err);
+    } else {
+      // For native HTML5 video player, we don't need YouTube API.
+      this.zone.run(() => {
+        setTimeout(() => {
+          const video = this.nativeVideoPlayerRef?.nativeElement;
+          if (video) {
+            video.playbackRate = this.currentSpeed;
+          }
+          this.cdr.detectChanges();
+        }, 100);
       });
+    }
   }
 
   private initYouTubePlayer(videoId: string) {
@@ -236,42 +296,87 @@ export class PlayerComponent implements OnInit, OnDestroy {
   }
 
   togglePlay() {
-    if (!this.ytPlayer) return;
-    try {
-      const state = this.ytPlayer.getPlayerState();
-      if (state === 1) {
-        this.ytPlayer.pauseVideo();
-      } else {
-        this.ytPlayer.playVideo();
+    if (this.streamProxyRegion === 'DIRECT') {
+      if (!this.ytPlayer) return;
+      try {
+        const state = this.ytPlayer.getPlayerState();
+        if (state === 1) {
+          this.ytPlayer.pauseVideo();
+        } else {
+          this.ytPlayer.playVideo();
+        }
+      } catch (err) {
+        console.warn('Error in togglePlay:', err);
       }
-    } catch (err) {
-      console.warn('Error in togglePlay:', err);
+    } else {
+      const video = this.nativeVideoPlayerRef?.nativeElement;
+      if (video) {
+        if (video.paused) {
+          video.play().catch(err => console.warn('Error playing video:', err));
+        } else {
+          video.pause();
+        }
+      }
     }
   }
 
   setSpeed(speed: number) {
     this.currentSpeed = speed;
-    if (this.ytPlayer) {
-      try {
-        this.ytPlayer.setPlaybackRate(speed);
-      } catch (err) {
-        console.warn('Error in setSpeed:', err);
+    if (this.streamProxyRegion === 'DIRECT') {
+      if (this.ytPlayer) {
+        try {
+          this.ytPlayer.setPlaybackRate(speed);
+        } catch (err) {
+          console.warn('Error in setSpeed:', err);
+        }
+      }
+    } else {
+      const video = this.nativeVideoPlayerRef?.nativeElement;
+      if (video) {
+        video.playbackRate = speed;
       }
     }
   }
 
   seek(seconds: number) {
-    if (!this.ytPlayer) return;
-    try {
-      const currentTime = this.ytPlayer.getCurrentTime();
-      this.ytPlayer.seekTo(Math.max(0, currentTime + seconds), true);
-    } catch (err) {
-      console.warn('Error in seek:', err);
+    if (this.streamProxyRegion === 'DIRECT') {
+      if (!this.ytPlayer) return;
+      try {
+        const currentTime = this.ytPlayer.getCurrentTime();
+        this.ytPlayer.seekTo(Math.max(0, currentTime + seconds), true);
+      } catch (err) {
+        console.warn('Error in seek:', err);
+      }
+    } else {
+      const video = this.nativeVideoPlayerRef?.nativeElement;
+      if (video) {
+        video.currentTime = Math.max(0, video.currentTime + seconds);
+      }
     }
   }
 
   stepFrame(direction: number) {
     this.seek(direction * 0.5);
+  }
+
+  onRegionChange() {
+    if (this.streamSourceUrl) {
+      this.loadStream();
+    }
+  }
+
+  getProxyStreamUrl(videoId: string): string {
+    return `http://localhost:3000/api/stream/proxy-stream?videoId=${videoId}&country=${this.streamProxyRegion}`;
+  }
+
+  onNativePlay() {
+    this.isPlaying = true;
+    this.cdr.detectChanges();
+  }
+
+  onNativePause() {
+    this.isPlaying = false;
+    this.cdr.detectChanges();
   }
 
   @HostListener('window:keydown', ['$event'])
@@ -305,6 +410,316 @@ export class PlayerComponent implements OnInit, OnDestroy {
         this.seek(-5);
         break;
     }
+  }
+
+  loadTournaments(forceRefresh = false) {
+    if (!forceRefresh && this.tournaments.length > 0) {
+      this.autoSelectTournament();
+      this.cdr.detectChanges();
+      return;
+    }
+
+    this.isTournamentsLoading = true;
+    this.tournaments = [];
+    this.selectedTournament = null;
+    this.cdr.detectChanges();
+
+    fetch('http://localhost:3000/api/stream/tournaments')
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to load tournaments.');
+        return res.json();
+      })
+      .then((data: any[]) => {
+        this.zone.run(() => {
+          this.tournaments = Array.isArray(data) ? data : [];
+          this.isTournamentsLoading = false;
+          this.autoSelectTournament();
+          this.appRef.tick();
+        });
+      })
+      .catch(err => {
+        console.error('Failed to load tournaments:', err);
+        this.zone.run(() => {
+          this.tournaments = [];
+          this.isTournamentsLoading = false;
+          this.appRef.tick();
+        });
+      });
+  }
+
+  loadRankings(forceRefresh = false) {
+    if (!forceRefresh && this.rankingsList.length > 0) {
+      this.autoSelectPlayer();
+      this.appRef.tick();
+      return;
+    }
+
+    this.isRankingsLoading = true;
+    this.rankingsList = [];
+    this.selectedPlayerProfile = null;
+    this.appRef.tick();
+
+    const url = `http://localhost:3000/api/stream/rankings${forceRefresh ? '?force=true' : ''}`;
+    fetch(url)
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to load rankings.');
+        return res.json();
+      })
+      .then((data: any[]) => {
+        this.zone.run(() => {
+          this.rankingsList = Array.isArray(data) ? data : [];
+          this.isRankingsLoading = false;
+          this.autoSelectPlayer();
+          this.appRef.tick();
+        });
+      })
+      .catch(err => {
+        console.error('Failed to load rankings:', err);
+        this.zone.run(() => {
+          this.rankingsList = [];
+          this.isRankingsLoading = false;
+          this.selectedPlayerProfile = null;
+          this.appRef.tick();
+        });
+      });
+  }
+
+  selectRankingDiscipline(discipline: string) {
+    this.selectedRankingDiscipline = discipline;
+    this.autoSelectPlayer();
+    this.cdr.detectChanges();
+  }
+
+  getSelectedRanking() {
+    return this.rankingsList.find(r => r.discipline === this.selectedRankingDiscipline);
+  }
+
+  autoSelectPlayer() {
+    const activeRanking = this.getSelectedRanking();
+    if (activeRanking && activeRanking.rankings && activeRanking.rankings.length > 0) {
+      this.selectedPlayerProfile = activeRanking.rankings[0];
+    } else {
+      this.selectedPlayerProfile = null;
+    }
+  }
+
+  selectPlayer(player: any) {
+    this.selectedPlayerProfile = player;
+    this.cdr.detectChanges();
+  }
+
+  searchPlayerVideos(playerName: string) {
+    if (!playerName) return;
+    const cleanName = playerName.split(/[\/&]/)[0].trim();
+    
+    this.activeTab = 'videos';
+    this.rawUrl = cleanName;
+    this.currentQuery = cleanName;
+    this.loadBadmintonFeed(cleanName);
+    
+    // Smooth scroll to curated section
+    setTimeout(() => {
+      const el = document.querySelector('.curated-section');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  }
+
+  searchPlayerLive(playerName: string) {
+    if (!playerName) return;
+    const cleanName = playerName.split(/[\/&]/)[0].trim();
+    
+    this.activeTab = 'live';
+    this.rawUrl = `${cleanName} live`;
+    this.currentQuery = `${cleanName} live`;
+    this.loadBadmintonFeed(`${cleanName} live`);
+    
+    setTimeout(() => {
+      const el = document.querySelector('.curated-section');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  }
+
+  getCountryFlag(country: string): string {
+    if (!country) return '🏳️';
+    const cleanCountry = country.toLowerCase().trim();
+    if (cleanCountry.includes('china')) return '🇨🇳';
+    if (cleanCountry.includes('korea')) return '🇰🇷';
+    if (cleanCountry.includes('japan')) return '🇯🇵';
+    if (cleanCountry.includes('denmark')) return '🇩🇰';
+    if (cleanCountry.includes('indonesia')) return '🇮🇩';
+    if (cleanCountry.includes('malaysia')) return '🇲🇾';
+    if (cleanCountry.includes('chinese taipei') || cleanCountry.includes('taiwan') || cleanCountry.includes('taipei')) return '🇹🇼';
+    if (cleanCountry.includes('thailand')) return '🇹🇭';
+    if (cleanCountry.includes('india')) return '🇮🇳';
+    if (cleanCountry.includes('france')) return '🇫🇷';
+    if (cleanCountry.includes('england')) return '🇬🇧';
+    if (cleanCountry.includes('hong kong')) return '🇭🇰';
+    if (cleanCountry.includes('singapore')) return '🇸🇬';
+    if (cleanCountry.includes('canada')) return '🇨🇦';
+    if (cleanCountry.includes('spain')) return '🇪🇸';
+    if (cleanCountry.includes('united states') || cleanCountry.includes('usa')) return '🇺🇸';
+    if (cleanCountry.includes('bulgaria')) return '🇧🇬';
+    if (cleanCountry.includes('germany')) return '🇩🇪';
+    if (cleanCountry.includes('netherlands')) return '🇳🇱';
+    
+    if (cleanCountry.includes('/') || cleanCountry.includes('&') || cleanCountry.includes('and')) {
+      const parts = cleanCountry.split(/[\/&]|and/);
+      return parts.map(p => this.getCountryFlag(p)).join(' ');
+    }
+    
+    return '🏳️';
+  }
+
+  getPlayerInitials(name: string): string {
+    if (!name) return '?';
+    
+    if (name.includes('/')) {
+      const partners = name.split('/');
+      const init1 = this.getSinglePlayerInitials(partners[0]);
+      const init2 = this.getSinglePlayerInitials(partners[1]);
+      return `${init1}/${init2}`;
+    }
+    
+    return this.getSinglePlayerInitials(name);
+  }
+
+  private getSinglePlayerInitials(name: string): string {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 0) return '?';
+    if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+    
+    const first = parts[0].charAt(0).toUpperCase();
+    const last = parts[parts.length - 1].charAt(0).toUpperCase();
+    return `${first}${last}`;
+  }
+
+  trackByRank(index: number, item: any): number {
+    return item.rank;
+  }
+
+  trackByDiscipline(index: number, item: string): string {
+    return item;
+  }
+
+  switchTournamentSubTab(subTab: 'ongoing' | 'upcoming' | 'past') {
+    if (this.activeTournamentSubTab === subTab) return;
+    this.activeTournamentSubTab = subTab;
+    this.autoSelectTournament();
+    this.cdr.detectChanges();
+  }
+
+  autoSelectTournament() {
+    const filtered = this.getFilteredTournaments(this.activeTournamentSubTab);
+    if (filtered.length > 0) {
+      this.selectedTournament = filtered[0];
+    } else {
+      this.selectedTournament = null;
+    }
+  }
+
+  selectTournament(t: any) {
+    this.selectedTournament = t;
+    this.cdr.detectChanges();
+  }
+
+  playTournamentVideo(match: any, tournamentName: string) {
+    if (!match) return;
+    
+    const isLive = !!match.isLive;
+    const staticId = match.videoId;
+
+    // Smoothly scroll to the top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // Switch tab so player container is mounted
+    this.activeTab = isLive ? 'live' : 'videos';
+
+    if (isLive && staticId) {
+      this.rawUrl = `https://www.youtube.com/watch?v=${staticId}`;
+      this.loadStream();
+      return;
+    }
+    
+    // Unique identifier for the search spinner state
+    const matchKey = `${match.player1 || match.player || ''}-${match.player2 || match.opponent || ''}`;
+    this.searchingMatchId = matchKey;
+    this.cdr.detectChanges();
+
+    // Resolve the video ID dynamically from YouTube search
+    const player1Name = match.player1 || match.player || '';
+    const player2Name = match.player2 || match.opponent || '';
+    
+    const queryParams = `tournament=${encodeURIComponent(tournamentName)}` +
+                        `&discipline=${encodeURIComponent(match.discipline)}` +
+                        `&player1=${encodeURIComponent(player1Name)}` +
+                        `&player2=${encodeURIComponent(player2Name)}` +
+                        `&isLive=${isLive}`;
+    
+    fetch(`http://localhost:3000/api/stream/find-match-video?${queryParams}`)
+      .then(res => {
+        if (!res.ok) throw new Error('API failed');
+        return res.json();
+      })
+      .then((data: { videoId: string | null }) => {
+        this.zone.run(() => {
+          this.searchingMatchId = null;
+          const resolvedId = data.videoId || staticId;
+          
+          if (!resolvedId) {
+            console.warn('Could not resolve match video ID');
+            this.activeTab = 'tournaments';
+            alert('No video highlights found on YouTube for this match.');
+            this.appRef.tick();
+            return;
+          }
+
+          this.rawUrl = `https://www.youtube.com/watch?v=${resolvedId}`;
+          this.loadStream();
+          this.appRef.tick();
+        });
+      })
+      .catch(err => {
+        console.error('Error finding match video:', err);
+        this.zone.run(() => {
+          this.searchingMatchId = null;
+          
+          // Fall back to static ID if available
+          if (staticId) {
+            this.rawUrl = `https://www.youtube.com/watch?v=${staticId}`;
+            this.loadStream();
+          } else {
+            this.activeTab = 'tournaments';
+            alert('Could not search for match video at this time.');
+          }
+          this.appRef.tick();
+        });
+      });
+  }
+
+  getFilteredTournaments(status: string): any[] {
+    return this.tournaments.filter(t => t.status === status);
+  }
+
+  parseScore(scoreStr: string): { p1: string; p2: string }[] {
+    if (!scoreStr) return [];
+    return scoreStr.split(',').map(s => {
+      const parts = s.trim().split('-');
+      return {
+        p1: parts[0] || '',
+        p2: parts[1] || ''
+      };
+    });
+  }
+
+  getDisciplineAbbr(discipline: string): string {
+    if (!discipline) return '';
+    const val = discipline.toLowerCase();
+    if (val.includes('men\'s singles') || val === 'ms') return 'MS';
+    if (val.includes('women\'s singles') || val === 'ws') return 'WS';
+    if (val.includes('men\'s doubles') || val === 'md') return 'MD';
+    if (val.includes('women\'s doubles') || val === 'wd') return 'WD';
+    if (val.includes('mixed doubles') || val === 'xd') return 'XD';
+    return discipline.substring(0, 2).toUpperCase();
   }
 
   ngOnDestroy() {

@@ -1,31 +1,106 @@
 <div class="player-container">
-  <div class="header">
-    <h1>Rally-Player</h1>
-    <p>Personal Streaming, Tagging & Slow-Motion Rotation Analysis Studio</p>
+  <!-- Sleek Premium Navigation Header -->
+  <div class="app-header">
+    <div class="logo-area">
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <span class="logo-icon">🏸</span>
+        <div>
+          <h1 class="app-title">Rally-Player</h1>
+          <p class="app-tagline">Personal Slow-Motion Tagging & Rotation Studio</p>
+        </div>
+      </div>
+    </div>
+    
+    <div class="nav-links">
+      <button 
+        class="nav-btn" 
+        [class.active]="activeTab === 'videos'" 
+        (click)="switchTab('videos')"
+      >
+        Videos
+      </button>
+      <button 
+        class="nav-btn" 
+        [class.active]="activeTab === 'live'" 
+        (click)="switchTab('live')"
+      >
+        Live
+      </button>
+      <button 
+        class="nav-btn" 
+        [class.active]="activeTab === 'tournaments'" 
+        (click)="switchTab('tournaments')"
+      >
+        Tournaments
+      </button>
+      <button 
+        class="nav-btn" 
+        [class.active]="activeTab === 'rankings'" 
+        (click)="switchTab('rankings')"
+      >
+        Rankings & Players
+      </button>
+    </div>
   </div>
 
   <!-- Search & Stream URL Form (YouTube-style Unified Bar) -->
-  <div class="url-form">
+  <div class="url-form" *ngIf="activeTab === 'videos' || activeTab === 'live'">
     <input 
       type="text" 
       class="url-input" 
-      placeholder="Search badminton videos (e.g. Christie drop) or paste YouTube link here..." 
+      [placeholder]="activeTab === 'videos' ? 'Search badminton matches (e.g. Christie drop) or paste YouTube link here...' : 'Search live tournaments (e.g. BWF Malaysia Open) or paste YouTube live stream link here...'" 
       [(ngModel)]="rawUrl"
       (keyup.enter)="onSearchOrStream()"
     />
+    
+    <!-- Proxy Bypass Location Dropdown -->
+    <div class="region-selector-container">
+      <span class="region-icon">🌐 Bypass Region:</span>
+      <select class="region-select" [(ngModel)]="streamProxyRegion" (change)="onRegionChange()">
+        <option value="DIRECT">Direct YouTube (No Proxy)</option>
+        <option value="DE">Germany VPN Proxy (BWF Free)</option>
+        <option value="NL">Netherlands VPN Proxy (BWF Free)</option>
+        <option value="US">United States VPN Proxy</option>
+      </select>
+    </div>
+
     <button class="btn-stream" (click)="onSearchOrStream()">
       <span>{{ isSearchUrl(rawUrl) ? 'Stream Match' : 'Search' }}</span>
     </button>
   </div>
 
   <!-- Video Workspace (Only shown when a stream is actively loaded) -->
-  <div class="video-workspace" *ngIf="streamSourceUrl">
+  <div class="video-workspace" *ngIf="(activeTab === 'videos' || activeTab === 'live') && streamSourceUrl">
     <!-- YT Mount target -->
-    <div id="yt-player-container" style="width: 100%; height: 100%;"></div>
+    <div *ngIf="streamProxyRegion === 'DIRECT'" id="yt-player-container" style="width: 100%; height: 100%;"></div>
+
+    <!-- HTML5 Video Proxy Player -->
+    <video 
+      *ngIf="streamProxyRegion !== 'DIRECT'"
+      #nativeVideoPlayer
+      id="native-video-player"
+      [src]="getProxyStreamUrl(streamSourceUrl)"
+      class="native-video-player"
+      controls
+      autoplay
+      (play)="onNativePlay()"
+      (pause)="onNativePause()"
+    ></video>
+  </div>
+
+  <!-- VPN Helper Alert Banner -->
+  <div class="vpn-helper-banner" *ngIf="(activeTab === 'videos' || activeTab === 'live') && streamSourceUrl && showVpnHelper">
+    <div class="vpn-banner-content">
+      <span class="vpn-banner-icon">🌐</span>
+      <div class="vpn-banner-text">
+        <strong>Geoblocking Warning:</strong> Official BWF tournament streams are geoblocked in countries with local broadcasting rights (e.g. Malaysia, Singapore, India). If you see "Video unavailable", connect your VPN to an unblocked region (like <strong>Germany</strong> or the <strong>Netherlands</strong>) to instantly unlock BWF TV broadcasts.
+      </div>
+    </div>
+    <button class="vpn-banner-close" (click)="showVpnHelper = false">×</button>
   </div>
 
   <!-- Analysis Control Hub (Only visible when stream is active) -->
-  <div class="controls-panel" *ngIf="streamSourceUrl">
+  <div class="controls-panel" *ngIf="(activeTab === 'videos' || activeTab === 'live') && streamSourceUrl">
     <div class="control-row">
       <div class="playback-buttons">
         <button class="btn-control" (click)="togglePlay()">
@@ -79,15 +154,15 @@
   </div>
 
   <!-- Dynamic Badminton Discovery & Search Results Grid (Always available for browsing) -->
-  <div class="curated-section">
+  <div class="curated-section" *ngIf="activeTab === 'videos' || activeTab === 'live'">
     <div class="section-header">
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
         <div>
           <h2 style="margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--text-main);">
-            {{ currentQuery ? '🔍 Search Results: "' + currentQuery + '"' : '🏸 Live Badminton Discovery Studio' }}
+            {{ currentQuery ? '🔍 Search Results: "' + currentQuery + '"' : (activeTab === 'videos' ? ' Live Badminton Discovery Studio' : ' Live BWF Tournaments & Replays') }}
           </h2>
           <p style="margin: 0.25rem 0 0 0; color: var(--text-muted); font-size: 0.9rem;">
-            {{ currentQuery ? 'Curated search matches pulled dynamically from YouTube.' : 'Instantly browse and analyze the latest badminton matches and tactical studies pulled directly from BWF TV.' }}
+            {{ currentQuery ? 'Curated search matches pulled dynamically from YouTube.' : (activeTab === 'videos' ? 'Instantly browse and analyze the latest badminton matches and tactical studies pulled directly from BWF TV.' : 'Watch, seek, and slow-motion analyze ongoing, upcoming, and replayed BWF live tournament broadcasts.') }}
           </p>
         </div>
         <div style="display: flex; gap: 0.75rem;">
@@ -104,7 +179,9 @@
     <!-- Feed Loading Spinner Overlay -->
     <div class="feed-loader" *ngIf="isFeedLoading && (curatedVideos?.length || 0) === 0">
       <div class="spinner"></div>
-      <p style="color: var(--text-muted); font-size: 0.9rem;">Querying YouTube for live badminton streams...</p>
+      <p style="color: var(--text-muted); font-size: 0.9rem;">
+        {{ activeTab === 'videos' ? 'Querying YouTube for live badminton streams...' : 'Connecting to BWF streams page to fetch live tournament broadcasts...' }}
+      </p>
     </div>
 
     <!-- Discover Video Cards Grid -->
@@ -117,7 +194,14 @@
       >
         <div class="card-thumbnail-container">
           <img [src]="video.thumbnail" alt="Match Thumbnail" class="card-thumbnail">
-          <span class="card-duration">{{ video.duration }}</span>
+          <span 
+            class="card-duration" 
+            [class.live-badge]="video.status === 'LIVE'"
+            [class.upcoming-badge]="video.status === 'UPCOMING'"
+          >
+            <span class="live-dot" *ngIf="video.status === 'LIVE'"></span>
+            {{ video.duration }}
+          </span>
           <span class="card-category">{{ video.category }}</span>
         </div>
         <div class="card-details">
@@ -132,7 +216,9 @@
       <!-- Loading more progress spinner -->
       <div class="load-more-loader" *ngIf="isLoadingMore">
         <div class="mini-spinner"></div>
-        <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0 0 0;">Fetching next page of badminton recordings...</p>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0.5rem 0 0 0;">
+          {{ activeTab === 'videos' ? 'Fetching next page of badminton recordings...' : 'Fetching next page of live tournament streams...' }}
+        </p>
       </div>
 
       <!-- Action button to fetch next batch -->
@@ -141,12 +227,348 @@
         class="btn-load-more" 
         (click)="loadMore()"
       >
-        <span>Show More Badminton Videos</span>
+        <span>{{ activeTab === 'videos' ? 'Show More Badminton Videos' : 'Show More Tournament Streams' }}</span>
       </button>
 
       <!-- Reached end of playlist indication -->
       <div class="end-of-results" *ngIf="!hasMoreVideos && !isLoadingMore">
         <span>🏸 You've fully caught up with the active search stream!</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tournaments Dashboard -->
+  <div class="tournaments-dashboard" *ngIf="activeTab === 'tournaments'">
+    <!-- Sub-tab Navigation (Segment Control style) -->
+    <div class="sub-nav-tabs">
+      <button class="sub-nav-btn" [class.active]="activeTournamentSubTab === 'ongoing'" (click)="switchTournamentSubTab('ongoing')">
+        <span class="pulse-indicator" *ngIf="activeTournamentSubTab === 'ongoing'"></span>
+        Ongoing Matches
+      </button>
+      <button class="sub-nav-btn" [class.active]="activeTournamentSubTab === 'upcoming'" (click)="switchTournamentSubTab('upcoming')">
+        Upcoming Calendar
+      </button>
+      <button class="sub-nav-btn" [class.active]="activeTournamentSubTab === 'past'" (click)="switchTournamentSubTab('past')">
+        Results & Replays
+      </button>
+    </div>
+
+    <!-- Spinner if loading -->
+    <div class="loading-overlay" *ngIf="isTournamentsLoading" style="position: static; min-height: 200px;">
+      <div class="spinner"></div>
+      <p style="color: var(--text-muted); margin-top: 1rem;">Loading tournament details...</p>
+    </div>
+
+    <!-- Main Tournaments Display Grid -->
+    <div class="tournaments-content-grid" *ngIf="!isTournamentsLoading">
+      
+      <!-- Left sidebar: Tournament List -->
+      <div class="tournaments-sidebar">
+        <div class="tournament-list-header">
+          {{ activeTournamentSubTab === 'ongoing' ? 'Active Events' : (activeTournamentSubTab === 'upcoming' ? 'Scheduled Events' : 'Past Events') }}
+        </div>
+        
+        <div class="tournament-list">
+          <div 
+            *ngFor="let t of getFilteredTournaments(activeTournamentSubTab)" 
+            class="tournament-list-item"
+            [class.selected]="selectedTournament?.id === t.id"
+            (click)="selectTournament(t)"
+          >
+            <div class="t-list-item-meta">
+              <span class="t-list-item-logo">{{ t.logo }}</span>
+              <div class="t-list-item-text">
+                <div class="t-list-item-name">{{ t.name }}</div>
+                <div class="t-list-item-desc">{{ t.location }}</div>
+              </div>
+            </div>
+            <span class="t-list-item-badge" [class.ongoing]="t.status === 'ongoing'" [class.upcoming]="t.status === 'upcoming'">
+              {{ t.category }}
+            </span>
+          </div>
+
+          <div *ngIf="getFilteredTournaments(activeTournamentSubTab).length === 0" class="no-tournaments-fallback">
+            No tournaments found for this category.
+          </div>
+        </div>
+      </div>
+
+      <!-- Right main area: Tournament Details Dashboard -->
+      <div class="tournament-main-details" *ngIf="selectedTournament">
+        <div class="t-details-header">
+          <div class="t-header-title-row">
+            <span class="t-header-logo-small">{{ selectedTournament.logo }}</span>
+            <h3 class="t-header-title">{{ selectedTournament.name }}</h3>
+            <span class="t-header-category-badge">{{ selectedTournament.category }}</span>
+          </div>
+          <div class="t-header-meta-grid">
+            <div class="meta-item">
+              <span class="meta-label">DATES</span>
+              <span class="meta-value">{{ selectedTournament.dates }}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">LOCATION</span>
+              <span class="meta-value">{{ selectedTournament.location }}</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">PRIZE MONEY</span>
+              <span class="meta-value" style="color: var(--primary-color);">{{ selectedTournament.prizeMoney }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="t-details-body">
+          <!-- ONGOING TOURNAMENT DETAILS -->
+          <div *ngIf="selectedTournament.status === 'ongoing'">
+            <div *ngFor="let round of selectedTournament.details?.rounds" class="round-section">
+              <h4 class="round-title">{{ round.roundName }}</h4>
+              
+              <div class="matches-list">
+                <div *ngFor="let match of round.matches" class="match-card">
+                  <div class="match-discipline-col">
+                    <span class="discipline-badge">{{ getDisciplineAbbr(match.discipline) }}</span>
+                  </div>
+                  
+                  <div class="match-players-stack">
+                    <div class="player-row" [class.winner]="match.winner === match.player1">
+                      <span class="player-name">{{ match.player1 }}</span>
+                    </div>
+                    <div class="player-row" [class.winner]="match.winner === match.player2">
+                      <span class="player-name">{{ match.player2 }}</span>
+                    </div>
+                  </div>
+
+                  <div class="score-sets" *ngIf="match.score">
+                    <div class="score-set-column" *ngFor="let set of parseScore(match.score)">
+                      <span class="set-score-val" [class.winner]="+set.p1 > +set.p2">{{ set.p1 }}</span>
+                      <span class="set-score-val" [class.winner]="+set.p2 > +set.p1">{{ set.p2 }}</span>
+                    </div>
+                  </div>
+                  <div class="score-sets-empty" *ngIf="!match.score"></div>
+
+                  <div class="match-action-col">
+                    <div class="match-live-badge-pulse" *ngIf="match.isLive">
+                      <span class="live-pulse"></span>
+                      LIVE
+                    </div>
+
+                    <!-- Watch actions -->
+                    <button 
+                      class="btn-match-action" 
+                      [class.live-action]="match.isLive"
+                      [disabled]="searchingMatchId === (match.player1 + '-' + match.player2)"
+                      (click)="playTournamentVideo(match, selectedTournament.name)"
+                    >
+                      <span>{{ searchingMatchId === (match.player1 + '-' + match.player2) ? 'Searching...' : (match.isLive ? 'Watch Live' : 'Analyze') }}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- UPCOMING TOURNAMENT DETAILS -->
+          <div *ngIf="selectedTournament.status === 'upcoming'">
+            <h4 class="round-title">Tournament Seeding & Entries</h4>
+            <div class="seedings-grid">
+              <div *ngFor="let seedInfo of selectedTournament.details?.seedings" class="seeding-card">
+                <div class="seeding-discipline">{{ seedInfo.discipline }}</div>
+                <ol class="seeding-list">
+                  <li *ngFor="let player of seedInfo.seeds; let idx = index" class="seeding-item">
+                    <span class="seed-number">#{{ idx + 1 }}</span>
+                    <span class="seed-player">{{ player }}</span>
+                  </li>
+                </ol>
+              </div>
+            </div>
+          </div>
+
+          <!-- PAST TOURNAMENT DETAILS -->
+          <div *ngIf="selectedTournament.status === 'past'">
+            <h4 class="round-title">Podium Winners & Finals Replays</h4>
+            <div class="winners-list">
+              <div *ngFor="let winner of selectedTournament.details?.winners" class="winner-card">
+                <div class="winner-discipline">{{ winner.discipline }}</div>
+                
+                <div class="winner-matchup">
+                  <div class="champion-info">
+                    <span class="podium-icon">🏆</span>
+                    <span class="champion-name">{{ winner.player }}</span>
+                  </div>
+                  <div class="winner-vs">defeated</div>
+                  <div class="runnerup-name">{{ winner.opponent }}</div>
+                </div>
+
+                <div class="winner-footer">
+                  <div class="winner-score">Score: {{ winner.score }}</div>
+                  <button 
+                    class="btn-match-action" 
+                    [disabled]="searchingMatchId === (winner.player + '-' + winner.opponent)"
+                    (click)="playTournamentVideo(winner, selectedTournament.name)"
+                  >
+                    <span>{{ searchingMatchId === (winner.player + '-' + winner.opponent) ? 'Searching...' : 'Watch Replay' }}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tournament-no-selected" *ngIf="!selectedTournament">
+        <span style="font-size: 3rem;">🏸</span>
+        <h3>No Tournament Selected</h3>
+        <p>Please select a tournament from the sidebar to view matches, seedings, and details.</p>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Interactive Panel for Rankings & Players -->
+  <div class="rankings-dashboard" *ngIf="activeTab === 'rankings'">
+    <div class="dashboard-header">
+      <div>
+        <h2 class="dashboard-title">BWF World Rankings & Players</h2>
+        <p class="dashboard-subtitle">Official world ranking tables and player stats dynamically fetched from BWF databases.</p>
+      </div>
+      <div class="as-of-badge" *ngIf="rankingsList.length > 0">WEEKLY UPDATE</div>
+    </div>
+
+    <!-- Discipline Selector Tabs -->
+    <div class="discipline-selector">
+      <button 
+        *ngFor="let disp of ['Men\'s Singles', 'Women\'s Singles', 'Men\'s Doubles', 'Women\'s Doubles', 'Mixed Doubles']; trackBy: trackByDiscipline"
+        class="discipline-btn"
+        [class.active]="selectedRankingDiscipline === disp"
+        (click)="selectRankingDiscipline(disp)">
+        {{ disp }}
+      </button>
+    </div>
+
+    <!-- Loading State -->
+    <div class="loading-state-container" *ngIf="isRankingsLoading">
+      <div class="spinner"></div>
+      <p class="loading-text">Fetching latest BWF ranking data...</p>
+    </div>
+
+    <!-- Empty State -->
+    <div class="empty-state-container" *ngIf="!isRankingsLoading && rankingsList.length === 0">
+      <span class="empty-icon">⚠️</span>
+      <h3 class="empty-title">Rankings Temporarily Unavailable</h3>
+      <p class="empty-text">We were unable to load the rankings data. Please check your connection or retry.</p>
+      <button class="retry-btn" (click)="loadRankings()">Retry Fetch</button>
+    </div>
+
+    <!-- Rankings Table & Profile Split View -->
+    <div class="rankings-split-grid" *ngIf="!isRankingsLoading && rankingsList.length > 0">
+      
+      <!-- Left side: Rankings Table -->
+      <div class="rankings-table-card">
+        <div class="table-responsive">
+          <table class="rankings-table">
+            <thead>
+              <tr>
+                <th class="col-rank">#</th>
+                <th class="col-player">Player / Pair</th>
+                <th class="col-country">Country</th>
+                <th class="col-points text-right">Total Points</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr 
+                *ngFor="let item of getSelectedRanking()?.rankings; trackBy: trackByRank" 
+                class="ranking-row clickable"
+                [class.selected-row]="selectedPlayerProfile === item"
+                (click)="selectPlayer(item)"
+              >
+                <td class="col-rank">
+                  <span class="rank-badge" [class.rank-top1]="item.rank === 1" [class.rank-top3]="item.rank > 1 && item.rank <= 3">
+                    {{ item.rank }}
+                  </span>
+                </td>
+                <td class="col-player">
+                  <span class="player-name-bold">{{ item.name }}</span>
+                </td>
+                <td class="col-country">
+                  <span class="country-capsule">
+                    <span class="flag-icon" style="margin-right: 0.35rem;">{{ getCountryFlag(item.country) }}</span>
+                    {{ item.country }}
+                  </span>
+                </td>
+                <td class="col-points text-right points-val">
+                  {{ item.points }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Right side: Player Detail & Action Panel -->
+      <div class="player-profile-panel">
+        <div class="profile-card" *ngIf="selectedPlayerProfile">
+          <div class="profile-header-group">
+            <div class="profile-avatar-circle" [class.long-initials]="getPlayerInitials(selectedPlayerProfile.name).length > 2">
+              {{ getPlayerInitials(selectedPlayerProfile.name) }}
+            </div>
+            <div style="flex: 1; min-width: 0;">
+              <h3 class="profile-player-name">{{ selectedPlayerProfile.name }}</h3>
+              <div class="profile-meta-row">
+                <span class="profile-discipline-tag">{{ selectedRankingDiscipline }}</span>
+                <span class="profile-country-capsule">
+                  <span class="flag-icon" style="margin-right: 0.3rem;">{{ getCountryFlag(selectedPlayerProfile.country) }}</span>
+                  {{ selectedPlayerProfile.country }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="profile-stats-grid">
+            <div class="stat-badge">
+              <span class="stat-label">Current Rank</span>
+              <span class="stat-value">#{{ selectedPlayerProfile.rank }}</span>
+            </div>
+            <div class="stat-badge">
+              <span class="stat-label">Total Points</span>
+              <span class="stat-value highlight">{{ selectedPlayerProfile.points }}</span>
+            </div>
+            <div class="stat-badge" *ngIf="selectedPlayerProfile.peak">
+              <span class="stat-label">Peak Rank</span>
+              <span class="stat-value">#{{ selectedPlayerProfile.peak }}</span>
+            </div>
+            <div class="stat-badge" *ngIf="selectedPlayerProfile.peakDate">
+              <span class="stat-label">Peak Date</span>
+              <span class="stat-value date-value">{{ selectedPlayerProfile.peakDate }}</span>
+            </div>
+          </div>
+
+          <!-- Interactive Studio Actions -->
+          <div class="profile-actions-section">
+            <h4 class="actions-section-title">Studio Match Analysis</h4>
+            <div class="profile-action-buttons">
+              <button class="profile-action-btn primary-action" (click)="searchPlayerVideos(selectedPlayerProfile.name)">
+                <svg class="action-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                </svg>
+                <span>Analyze Match Highlights</span>
+              </button>
+              <button class="profile-action-btn secondary-action" (click)="searchPlayerLive(selectedPlayerProfile.name)">
+                <svg class="action-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M5 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-1"></path>
+                  <polygon points="12 7 17 12 12 17 12 7"></polygon>
+                </svg>
+                <span>Find Live Broadcasts</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fallback if no player selected -->
+        <div class="profile-card-empty" *ngIf="!selectedPlayerProfile">
+          <span class="empty-profile-icon">👤</span>
+          <p class="empty-profile-text">Select a player from the rankings table to view detailed statistics, profile cards, and analyze matches in the studio.</p>
+        </div>
       </div>
     </div>
   </div>
