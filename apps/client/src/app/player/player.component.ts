@@ -118,7 +118,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
       }
     }
 
-    let feedUrl = `http://localhost:3000/api/stream/badminton-feed?page=${page}`;
+    let feedUrl = `http://localhost:3003/api/stream/badminton-feed?page=${page}`;
     if (queryParam) {
       feedUrl += `&query=${encodeURIComponent(queryParam.trim())}`;
     }
@@ -399,7 +399,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
   }
 
   getProxyStreamUrl(videoId: string): string {
-    return `http://localhost:3000/api/stream/proxy-stream?videoId=${videoId}&country=${this.streamProxyRegion}`;
+    return `http://localhost:3003/api/stream/proxy-stream?videoId=${videoId}&country=${this.streamProxyRegion}`;
   }
 
   onNativePlay() {
@@ -458,7 +458,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
     this.selectedTournament = null;
     this.cdr.markForCheck();
 
-    fetch('http://localhost:3000/api/stream/tournaments')
+    fetch('http://localhost:3003/api/stream/tournaments')
       .then(res => {
         if (!res.ok) throw new Error('Failed to load tournaments.');
         return res.json();
@@ -494,7 +494,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
     this.selectedPlayerProfile = null;
     this.cdr.markForCheck();
 
-    const url = `http://localhost:3000/api/stream/rankings${forceRefresh ? '?force=true' : ''}`;
+    const url = `http://localhost:3003/api/stream/rankings${forceRefresh ? '?force=true' : ''}`;
     fetch(url)
       .then(res => {
         if (!res.ok) throw new Error('Failed to load rankings.');
@@ -722,7 +722,7 @@ export class PlayerComponent implements OnInit, OnDestroy {
                         `&player2=${encodeURIComponent(player2Name)}` +
                         `&isLive=${isLive}`;
     
-    fetch(`http://localhost:3000/api/stream/find-match-video?${queryParams}`)
+    fetch(`http://localhost:3003/api/stream/find-match-video?${queryParams}`)
       .then(res => {
         if (!res.ok) throw new Error('API failed');
         return res.json();
